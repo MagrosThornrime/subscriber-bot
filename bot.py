@@ -81,7 +81,7 @@ class Logger:
 
     @tasks.loop(hours=1)
     async def log_config(self):
-        config = TaskHandlerConfig(guild_id: int, last_task_id: int)
+        config = TaskHandlerConfig(guild_id, last_task_id)
         text = json.dumps(config, indent=2)
         async with aiofiles.open(self.configuration_file, mode="w") as f:
             await f.write(text)
@@ -144,7 +144,7 @@ class TaskHandler:
     async def __add_mentions(self):
         pass
 
-    async def __register_task(self, task_id: int
+    async def __register_task(self, task_id: int,
                                 task_entry: TaskEntry, 
                                 plugin_instance: Plugin,
                                 task: tasks.Loop):
