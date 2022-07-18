@@ -43,7 +43,7 @@ class Plugin(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def modal(self) -> Modal
+    async def modal(self) -> Modal:
         raise NotImplementedError
 
 
@@ -77,7 +77,7 @@ class Test(Plugin):
                                     style=dc.InputTextStyle.long))
             self.add_item(InputText(label="Number"))
 
-        def callback(self, interaction: dc.Interaction):
+        async def callback(self, interaction: dc.Interaction):
             self.arguments.message = self.children[0].value
             self.arguments.count = int(self.children[1].value)
             await interaction.response.send_message("Arguments passed")
