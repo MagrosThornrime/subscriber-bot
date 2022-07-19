@@ -5,12 +5,14 @@ from discord.ext import tasks, commands
 from discord.ui import Modal
 import os
 from dotenv import load_dotenv
-import json
 from dataclasses import dataclass
+from dataclasses_json import dataclass_json
+import json
 
 from plugins import Plugin, PluginArguments
 
 
+@dataclass_json
 @dataclass
 class TaskHandlerConfig:
     """
@@ -18,9 +20,10 @@ class TaskHandlerConfig:
     hasn't many attributes, but it will probably change in the future.
     """
     guild_id: int
-    last_task_id: int
+    last_task_id: int = 0
 
 
+@dataclass_json
 @dataclass
 class TaskEntry:
     """
@@ -48,7 +51,7 @@ class MessageSender:
         self.messages_lists = []
         self.send_messages.start()
 
-    def put_messages(self, channel: dc.GuildChannel, messages: list[str]):
+    def put_messages(self, channel: dc.TextChannel, messages: list[str]):
         self.messages_lists.append((channel, messages))
 
     @tasks.loop(seconds=1)
@@ -64,39 +67,54 @@ class MessageSender:
 class Logger:
 
     """
-    The TaskHandler's interface for accessing its files. It logs TaskHandler's
+    The TaskHandler's interface for accessing its log files. It logs TaskHandler's
     attributes to the first file, its tasks' data to the second one (and
-    in the future all debug logs to the third one). It can also load data
-    from these files if the bot starts running.
+    in the future all debug logs to the third one). It can also load logs.
     """
 
-    # TODO: maybe I need something like "FileSaver" and "FileLoader"...?
-
     def __init__(self, guild: dc.Guild):
-        self.guild_id = guild.id
+        self.guild = guild
         self.tasks_file = f"data/{guild.id}-tasks"
         self.config_file = f"data/{guild.id}-conf"
-        self.log_all_tasks.start()
-        self.log_configuration.start()
+        self.config = self.get_config()
+        self.tasks_data = self.get_tasks_data()
+        self.log_all_tasks.start(self.tasks_data)
+        self.log_config.start()
 
     @tasks.loop(hours=1)
     async def log_config(self):
-        config = TaskHandlerConfig(guild_id, last_task_id)
-        text = json.dumps(config, indent=2)
-        async with aiofiles.open(self.configuration_file, mode="w") as f:
+        text = self.config.to_json(indent=2)
+        async with aiofiles.open(self.config_file, mode="w") as f:
             await f.write(text)
 
     @tasks.loop(hours=1)
     async def log_all_tasks(self, tasks_data: dict[int, TaskEntry]):
-        text = json.dumps(tasks_data, indent=2)
+        prepared = {id_: entry.to_dict() for id_, entry in tasks_data.items()}
+        text = json.dumps(prepared, indent=2)
         async with aiofiles.open(self.tasks_file, mode="w") as f:
             await f.write(text)        
 
+    #TODO: repair json-dataclass decoding (maybe using dataclass_json?)
+
     def get_config(self) -> TaskHandlerConfig:
-        with open(self.config_file, "r") as f:
-            config = json.load(f)
+        try:
+            with open(self.config_file, "r") as f:
+                text = f.read()
+            config = TaskHandlerConfig.from_json(text)
+        except FileNotFoundError:
+            config = TaskHandlerConfig(self.guild.id)
         return config
 
+    def get_tasks_data(self) -> dict[int, TaskEntry]:
+        try:
+            with open(self.tasks_file, "r") as f:
+                tasks_loaded = json.load(f)
+            tasks_data = {}
+            for id_, task in tasks_loaded.items():
+                tasks_data[id_] = TaskEntry.from_dict(task)
+        except FileNotFoundError:
+            tasks_data = {}
+        return tasks_data
 
 class TaskHandler:
 
@@ -107,27 +125,23 @@ class TaskHandler:
 
     # TODO: if I want the bot to be pluggable, I need to raise some exceptions
     # if a plugin is not usable
+
     
-    def __init__(self, guild):
+    def __init__(self, guild: dc.Guild):
         self.guild = guild
-        self.last_task_id = 0
-        self.tasks_data = {}
+        self.sender = MessageSender(guild)
+        self.logger = Logger(guild)
+        self.config = self.logger.config
+        self.tasks_data = self.logger.tasks_data
         self.tasks = {}
         self.plugin_instances = {}
         self.plugins = {}
-        self.sender = MessageSender(guild)
-        self.logger = Logger(guild)
-        self.load_config(self.logger.get_config())
-
-    def load_config(self, config: TaskHandlerConfig):
-        # TODO: po co mi to?
-        self.last_task_id = config.last_task_id
 
     def __find_plugin(self, name: str) -> callable:
         if name not in self.plugins:
             plugin = Plugin.get_children()[name]
             self.plugins[name] = plugin
-        return plugin
+        return self.plugins[name]
 
     async def __create_plugin_instance(self, ctx: commands.Context,
                                                 plugin_name: str):
@@ -137,7 +151,7 @@ class TaskHandler:
         except TypeError:
             modal = plugin_cls.modal()
             await ctx.send_modal(modal)
-            arguments = modal.arguments()
+            arguments = modal.arguments
             plugin = plugin_cls(arguments)
         return plugin
 
@@ -145,51 +159,53 @@ class TaskHandler:
         pass
 
     async def __register_task(self, task_id: int,
-                                task_entry: TaskEntry, 
-                                plugin_instance: Plugin,
-                                task: tasks.Loop):
+                                    task_entry: TaskEntry, 
+                                    plugin_instance: Plugin,
+                                    new_task: tasks.Loop):
         self.tasks_data[task_id] = task_entry
         self.plugin_instances[task_id] = plugin_instance
         self.tasks[task_id] = new_task
 
-    async def create_task(self, ctx, plugin_name, period, tag):
+    async def create_task(self, ctx: commands.Context,
+                                plugin_name: str,
+                                period: int,
+                                tag: str):
 
         @tasks.loop(seconds=period)
-        async def new_task(plugin, channel):
+        async def new_task(plugin: Plugin, channel: dc.TextChannel):
             messages = await plugin.get_messages()
             self.sender.put_messages(channel, messages)
 
-        task_id = self.last_task_id
+        task_id = self.config.last_task_id + 1
         plugin = await self.__create_plugin_instance(ctx, plugin_name)
         new_task.start(plugin, ctx.channel)
 
         arguments = plugin.arguments
-        entry = TaskEntry(plugin_name, period, ctx.channel.name, arguments)
-        await self.__register_task(task_id, entry, plugin_instance, task)
+        entry = TaskEntry(plugin_name, period, ctx.channel.name, tag, arguments)
+        await self.__register_task(task_id, entry, plugin, new_task)
+        self.config.last_task_id = task_id
         await self.logger.log_config()
-        await self.logger.log_all_tasks(self.task_data)
-        self.last_task_id += 1
+        await self.logger.log_all_tasks(self.tasks_data)
 
     def edit_task(self):
         # TODO: load the task's data, end the task, delete it, then create
         # a new task with modified data
         pass
 
-    async def delete_task(self, task_id):
+    async def delete_task(self, task_id: int):
         self.tasks[task_id].stop()
         del self.tasks[task_id]
         del self.tasks_data[task_id]
         del self.plugins[task_id]
-        await self.logger.log_all_tasks()
+        await self.logger.log_all_tasks(self.task_data)
 
     def list_tasks(self):
-        return json.dumps(self.tasks_data, indent=2)
+        return self.logger.get_tasks_data()
 
-    async def run_task(self, task_id):
+    async def run_task(self, task_id: int):
         # may be called if you are too impatient and don't want to wait
         plugin = self.plugins[task_id]
-        channel_name = self.tasks_data[task_id]["channel"]
-        # TODO: co z tym channel?
+        channel_name = self.tasks_data[task_id].channel_name
         channel = dc.utils.get(self.guild.channels, name=channel_name)
         await self.tasks[task_id](plugin, channel)
 
@@ -213,9 +229,9 @@ class TaskCommands(commands.Cog):
 
     @commands.slash_command()
     async def create_task(self, ctx: commands.Context, plugin: str,
-                            period: int, channel: str, tag: str):
+                                            period: int, tag: str):
         handler = self.get_handler(ctx.guild)
-        await handler.create_task(plugin, int(period), channel, tag)
+        await handler.create_task(ctx, plugin, int(period), tag)
         await ctx.respond("Task created")
 
     @commands.slash_command()

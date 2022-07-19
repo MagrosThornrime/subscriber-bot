@@ -23,7 +23,7 @@ class Plugin(ABC):
     """
 
     def __init__(self, arguments=None):
-        self.arguments = None
+        self.arguments = arguments
 
     @classmethod
     def get_children(cls):
@@ -47,29 +47,13 @@ class Plugin(ABC):
         raise NotImplementedError
 
 
-class Test(Plugin):
-    """
-    A simple Plugin for testing.
-    """
+@dataclass
+class TestArguments(PluginArguments):
+    message: str = "Default message"
+    count: int = 1
 
-    def __init__(self, arguments: TestArguments) -> None:
-        self.message = arguments.message
-        self.count = arguments.number
 
-    @classmethod
-    def modal(self) -> TestModal:
-        return TestModal()
-
-    async def get_messages(self) -> list[str]:
-        messages = [self.message for i in range(self.number)]
-        return messages
-
-    @dataclass
-    class TestArguments(PluginArguments):
-        message: str
-        count: int
-
-    class TestModal(Modal):
+class TestModal(Modal):
         def __init__(self, *args, **kwargs) -> None:
             super().__init__(*args, **kwargs)
             self.arguments = TestArguments()
@@ -81,7 +65,27 @@ class Test(Plugin):
             self.arguments.message = self.children[0].value
             self.arguments.count = int(self.children[1].value)
             await interaction.response.send_message("Arguments passed")
-            
+
+
+
+
+class Test(Plugin):
+    """
+    A simple Plugin for testing.
+    """
+
+    def __init__(self, arguments: TestArguments) -> None:
+        super().__init__(arguments)
+
+    @classmethod
+    def modal(self) -> TestModal:
+        return TestModal(title="Plugin 'Test' is asking for arguments")
+
+    async def get_messages(self) -> list[str]:
+        message = self.arguments.message
+        count = self.arguments.count
+        messages = [message for i in range(count)]
+        return messages
 
 
 # TODO: naprawić tem szmelc
