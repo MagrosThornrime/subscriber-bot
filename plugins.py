@@ -45,6 +45,8 @@ class Plugin(ABC):
     @abstractmethod
     async def modal(self) -> Modal:
         raise NotImplementedError
+    
+    arguments_cls = PluginArguments
 
 
 @dataclass
@@ -65,8 +67,7 @@ class TestModal(Modal):
             self.arguments.message = self.children[0].value
             self.arguments.count = int(self.children[1].value)
             await interaction.response.send_message("Arguments passed")
-
-
+            self.stop()
 
 
 class Test(Plugin):
@@ -86,6 +87,8 @@ class Test(Plugin):
         count = self.arguments.count
         messages = [message for i in range(count)]
         return messages
+    
+    arguments_cls = TestArguments
 
 
 # TODO: naprawić tem szmelc
