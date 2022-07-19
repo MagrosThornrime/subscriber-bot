@@ -94,8 +94,6 @@ class Logger:
         async with aiofiles.open(self.tasks_file, mode="w") as f:
             await f.write(text)        
 
-    #TODO: repair json-dataclass decoding (maybe using dataclass_json?)
-
     def get_config(self) -> TaskHandlerConfig:
         try:
             with open(self.config_file, "r") as f:
