@@ -11,7 +11,6 @@ My bot allows to subscribe to its plugins. If you subscribe to a plugin, it will
 - some major exceptions handled
 - debug logs
 - packaging (probably using Pyinstaller)
-- LICENSE (MIT maybe?)
 - mentions and tag sent before other messages
 - every plugin has its own directory (so you can create complex ones using many files and store your logs)
 - list_tasks parsing
@@ -21,4 +20,4 @@ My bot allows to subscribe to its plugins. If you subscribe to a plugin, it will
 # How to contribute:
 I don't have much experience in programming, so I'm not sure I can verify your commits. I want you to create issues, so I can discuss with you.
 
-*** Before 1.0.0 there will be a lot of tiny commits, like updating README. ***
+*Before 1.0.0 there will be a lot of tiny commits, like updating README.*
