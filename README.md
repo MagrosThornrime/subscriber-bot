@@ -16,3 +16,4 @@ My bot allows to subscribe to its plugins. If you subscribe to a plugin, it will
 - every plugin has its own directory (so you can create complex ones using many files and store your logs)
 - list_tasks parsing
 - /run_task slash command
+- list needed packages (requirements.txt with `pip freeze` format)
