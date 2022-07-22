@@ -3,6 +3,7 @@ from discord.ext import tasks
 import aiofiles
 from dataclasses import dataclass, asdict, fields
 import json
+from collections import deque
 
 from plugins import Plugin, PluginArguments
 
@@ -40,7 +41,7 @@ class MessageSender:
 
     def __init__(self, guild: dc.Guild):
         self.guild = guild
-        self.messages_lists = []
+        self.messages_queue = deque()
         self.__send_messages.start()
 
     async def __title_message(self):
@@ -49,13 +50,13 @@ class MessageSender:
         pass
 
     def put_messages(self, channel: dc.TextChannel, messages: list[str]):
-        self.messages_lists.append((channel, messages))
+        self.messages_queue.appendleft((channel, messages))
 
     @tasks.loop(seconds=1)
     async def __send_messages(self):
         # may raise Forbidden if the bot doesn't have needed permissions
-        while self.messages_lists:
-            channel, messages = self.messages_lists.pop()
+        while self.messages_queue:
+            channel, messages = self.messages_queue.pop()
             for message in messages:
                 await channel.send(message)
 
