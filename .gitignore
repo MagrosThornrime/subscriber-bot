@@ -2,7 +2,7 @@
 utils/
 
 # Venv directory
-util_venv/
+venv/
 
 # This is where bot stores task/debugging/server-configuration data
 data/
