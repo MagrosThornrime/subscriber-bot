@@ -1,20 +1,28 @@
+from collections import deque
+from dataclasses import dataclass, asdict
+import json
+from pathlib import Path
+
+import aiofiles
 import discord as dc
 from discord.ext import tasks
-import aiofiles
-from dataclasses import dataclass, asdict, fields
-import json
-from collections import deque
 
-from plugins import Plugin, PluginArguments
+import my_plugins
+from my_plugins.plugins_abc import Plugin
+from plugins import get_plugins
+
+
+class TaskError(Exception):
+    def __init__(self, message: str):
+        self.message = message
 
 
 @dataclass
 class TaskHandlerConfig:
-    """
-    I want to store types of all attributes, so I chose a dataclass. Now it
-    hasn't many attributes, but it will probably change in the future.
-    """
+
     guild_id: int
+    # TODO: a list of plugins enabled for the guild
+    # (apart from these enabled by default)
 
 
 @dataclass
@@ -26,7 +34,7 @@ class TaskEntry:
     period: int
     channel_name: str
     tag: str
-    arguments: PluginArguments
+    arguments: dict[str]
 
 
 class MessageSender:
@@ -54,7 +62,6 @@ class MessageSender:
 
     @tasks.loop(seconds=1)
     async def __send_messages(self):
-        # may raise Forbidden if the bot doesn't have needed permissions
         while self.messages_queue:
             channel, messages = self.messages_queue.pop()
             for message in messages:
@@ -80,6 +87,7 @@ class Logger:
     @tasks.loop(hours=1)
     async def log_config(self):
         text = json.dumps(asdict(self.config), indent=2)
+        Path("data").mkdir(exist_ok=True)
         async with aiofiles.open(self.config_file, mode="w") as f:
             await f.write(text)
 
@@ -87,14 +95,9 @@ class Logger:
     async def log_all_tasks(self):
         prepared = []
         for entry in self.tasks_data:
-            entry_as_dict = {}
-            for field in fields(entry):
-                if field.name != "arguments":
-                    entry_as_dict[field.name] = getattr(entry, field.name)
-            arguments = asdict(entry.arguments)
-            entry_as_dict["arguments"] = arguments
-            prepared.append(entry_as_dict)
+            prepared.append(asdict(entry))
         text = json.dumps(prepared, indent=2)
+        Path("data").mkdir(exist_ok=True)
         async with aiofiles.open(self.tasks_file, mode="w") as f:
             await f.write(text)
 
@@ -102,10 +105,10 @@ class Logger:
         try:
             async with aiofiles.open(self.config_file, "r") as f:
                 text = await f.read()
-            config = TaskHandlerConfig(**(json.loads(text)))
+            self.config = TaskHandlerConfig(**(json.loads(text)))
         except FileNotFoundError:
-            config = TaskHandlerConfig(self.guild.id)
-        self.config = config
+            self.config = TaskHandlerConfig(self.guild.id)
+            await self.log_config()
 
     async def get_tasks_data(self):
         try:
@@ -113,13 +116,9 @@ class Logger:
                 text = await f.read()
             tasks_loaded = json.loads(text)
             for task in tasks_loaded:
-                plugin_name = task["plugin_name"]
-                plugin_cls = Plugin.get_children()[plugin_name]
-                arguments = plugin_cls.arguments_cls(**(task["arguments"]))
-                task["arguments"] = arguments
                 self.tasks_data.append(TaskEntry(**task))
         except FileNotFoundError:
-            pass
+            await self.log_all_tasks()
 
 
 class TaskHandler:
@@ -139,19 +138,23 @@ class TaskHandler:
 
     async def __plugin_with_modal(self, ctx: dc.ApplicationContext,
                                   plugin_name: str) -> Plugin:
-        plugin_cls = Plugin.get_children()[plugin_name]
+        try:
+            plugin_cls = get_plugins()[plugin_name]
+        except KeyError:
+            raise TaskError(f"Plugin ({plugin_name}) doesn't exist")
+
         try:
             plugin = plugin_cls()
         except TypeError:
-            modal = plugin_cls.modal()
+            modal = await plugin_cls.modal()
             await ctx.send_modal(modal)
             await modal.wait()
             arguments = modal.arguments
             plugin = plugin_cls(arguments)
         return plugin
 
-    async def __plugin_with_logs(self, task_entry: TaskEntry) -> Plugin:
-        plugin_cls = Plugin.get_children()[task_entry.plugin_name]
+    def __plugin_with_logs(self, task_entry: TaskEntry) -> Plugin:
+        plugin_cls = get_plugins()[task_entry.plugin_name]
         try:
             plugin = plugin_cls()
         except TypeError:
@@ -178,21 +181,27 @@ class TaskHandler:
         self.tasks.append(new_task)
 
     async def __create_from_logs(self, entry: TaskEntry):
-        plugin = await self.__plugin_with_logs(entry)
+        plugin = self.__plugin_with_logs(entry)
         channel = dc.utils.get(self.guild.channels, name=entry.channel_name)
         await self.__create_task(plugin, entry.period, entry.tag, channel)
 
     async def load_tasks(self):
         for task_entry in self.tasks_data:
             await self.__create_from_logs(task_entry)
+    
+    def __get_channel(self, channel_name) -> dc.TextChannel:
+        channel = dc.utils.get(self.guild.channels, name=channel_name)
+        if not isinstance(channel, dc.TextChannel):
+            raise TaskError(f"{channel.name} isn't a text channel")
+        elif not channel.can_send:
+            raise TaskError(f"I can't send messages on {channel.name}")
+        return channel
 
     async def create_from_command(self, ctx: dc.ApplicationContext,
                                   plugin_name: str, period: int, tag: str,
                                   channel_name: str):
         if channel_name:
-            channel = dc.utils.get(
-                self.guild.channels,
-                name=channel_name)
+            channel = self.__get_channel(channel_name)
         else:
             channel = ctx.channel
         plugin = await self.__plugin_with_modal(ctx, plugin_name)
@@ -216,7 +225,7 @@ class TaskHandler:
             entry.channel_name = channel_name
         if change_args:
             plugin = await self.__plugin_with_modal(ctx, entry.plugin_name)
-        channel = dc.utils.get(self.guild.channels, name=entry.channel_name)
+        channel = self.__get_channel(entry.channel_name)
         await self.__create_task(plugin, entry.period, entry.tag, channel)
         await self.__register_task(plugin, entry.period, entry.tag,
                                    entry.channel_name)

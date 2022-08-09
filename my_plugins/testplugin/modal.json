@@ -1,0 +1,14 @@
+[
+    {
+        "label": "Message to be sent",
+        "value": "Hello world!",
+        "style": "long",
+        "placeholder": "Hello world!"
+    },
+    {
+        "label": "How many times to repeat?",
+        "value": "1",
+        "style": "short",
+        "placeholder": "1"
+    }
+]

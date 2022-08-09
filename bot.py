@@ -1,11 +1,12 @@
+import os
+
 import discord as dc
 from discord.commands import slash_command, Option
 from discord.ext.commands import Cog, Bot
 from discord.ui import Modal
-import os
 from dotenv import load_dotenv
 
-from handler import TaskHandler
+from handler import TaskHandler, TaskError
 
 
 class TaskCommands(Cog):
@@ -46,8 +47,12 @@ class TaskCommands(Cog):
                           channel: Option(str, "Where the messages will be sent?", default="")
                           ):
         handler = await self.__get_handler(ctx.guild)
-        await handler.create_from_command(ctx, plugin, period, tag, channel)
-        await ctx.respond("Task created")
+        try:
+            await handler.create_from_command(ctx, plugin, period, tag, channel)
+        except TaskError as exception:
+            await ctx.respond(exception.message)
+        else:
+            await ctx.respond("Task created")
 
     @slash_command(description="Delete a task")
     async def delete_task(self, ctx: dc.ApplicationContext,
@@ -58,7 +63,7 @@ class TaskCommands(Cog):
             await handler.delete_task(int(task_id))
             await ctx.respond("Task deleted")
         except IndexError:
-            await ctx.respond("Index out of range!")
+            await ctx.respond("Task doesn't exist")
 
     @slash_command(description="List all tasks")
     async def list_tasks(self, ctx: dc.ApplicationContext):
@@ -87,6 +92,13 @@ class TaskCommands(Cog):
         handler = await self.__get_handler(ctx.guild)
         await handler.run_task(task_id)
         await ctx.respond("Here you are")
+    
+    @Cog.listener()
+    async def on_ready(self):
+        print(f"Bot connected - {bot.user}")
+        print(bot.guilds)
+        for guild in bot.guilds:
+            await self.__get_handler(guild)
 
 
 class BotUtilities(Cog):
@@ -113,10 +125,6 @@ class BotUtilities(Cog):
                     await message.delete()
                 return
 
-    @Cog.listener()
-    async def on_ready(self):
-        print(f"Bot connected - {bot.user}")
-        print(bot.guilds)
 
 
 if __name__ == "__main__":

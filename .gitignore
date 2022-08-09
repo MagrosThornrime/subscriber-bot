@@ -1,17 +1,7 @@
-# Stuff for testing/debugging (and such):
 utils/
-
-# Venv directory
 venv/
-
-# This is where bot stores task/debugging/server-configuration data
 data/
-
-# Idk
 __pycache__/
-
-# Secrets
 .env
-
-# My notebook
 crawler.md
+next_commit.md
