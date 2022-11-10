@@ -1,7 +1,0 @@
-utils/
-venv/
-data/
-__pycache__/
-.env
-crawler.md
-next_commit.md
