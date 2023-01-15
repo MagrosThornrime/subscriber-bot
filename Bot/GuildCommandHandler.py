@@ -1,12 +1,32 @@
 import discord as dc
 
+from DiscordViews.CreationView import CreationView
 
-class TaskCollection:
+
+class GuildCommandHandler:
     def __init__(self, guild: dc.Guild):
         self.guild = guild
         self.tasks = []
 
-    def create_task(self):
+    async def create_task(self, ctx: dc.ApplicationContext):
+        embed = dc.Embed(
+            title="Create a task"
+        )
+        fields = (
+            dc.EmbedField(
+                name="Common info",
+                value="",
+            ),
+            dc.EmbedField(
+                name="Plugin info",
+                value=""
+            )
+        )
+        for field in fields:
+            embed.append_field(field)
+        view = CreationView(ctx.user, self.tasks)
+        await ctx.respond(embed=embed, view=view)
+
         # 1. create and send the modal:
         #   - name of the plugin
         #   - tag
